@@ -7,11 +7,11 @@ import { mapTo, tap } from "rxjs/operators";
 const cluster: Cluster = require("cluster");
 
 export class WorkerFactory {
-    private jobPath: string = process.cwd() + "tempProcess";
+    private jobPath: string = process.cwd() + "/tempProcess.js";
 
-    public createWorkerFile<T>(job: () => T): Observable<string> {
+    public createWorkerFile<T>(job: (args: any[]) => T): Observable<string> {
         const stream = createWriteStream(this.jobPath);
-        if (stream.write(job)) {
+        if (stream.write(job.toString())) {
             stream.end();
             return of(this.jobPath);
         } else {
@@ -32,6 +32,7 @@ export class WorkerFactory {
             ...overrides,
         };
         cluster.setupMaster(cSettings);
+        cluster.on("");
     }
 
     public spawnWorkers(limit: number = 0): void {
@@ -45,5 +46,9 @@ export class WorkerFactory {
         for (let index = 0; index < maxWorkers; index++) {
             cluster.fork();
         }
+    }
+
+    public deleteWorkerFile(): Observable<boolean> {
+        return of(false);
     }
 }
