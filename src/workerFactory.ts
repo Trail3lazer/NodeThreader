@@ -1,17 +1,18 @@
 import { Cluster } from "node:cluster";
-import { createWriteStream } from "fs";
+import { createWriteStream, unlink } from "fs";
 import { ClusterSettings } from "node:cluster";
 import { cpus } from "os";
 import { bindCallback, Observable, of } from "rxjs";
-import { mapTo, tap } from "rxjs/operators";
+import { catchError, map, mapTo, tap } from "rxjs/operators";
 const cluster: Cluster = require("cluster");
 
 export class WorkerFactory {
     private jobPath: string = process.cwd() + "/tempProcess.js";
 
-    public createWorkerFile<T>(job: (args: any[]) => T): Observable<string> {
+    public createWorkerFile<T>(job: (args: any) => T): Observable<string> {
         const stream = createWriteStream(this.jobPath);
-        if (stream.write(job.toString())) {
+        const jobFileString = `export const job = ${job}`;
+        if (stream.write(jobFileString)) {
             stream.end();
             return of(this.jobPath);
         } else {
@@ -32,7 +33,7 @@ export class WorkerFactory {
             ...overrides,
         };
         cluster.setupMaster(cSettings);
-        cluster.on("");
+        cluster.on("exit", this.deleteWorkerFile);
     }
 
     public spawnWorkers(limit: number = 0): void {
@@ -49,6 +50,9 @@ export class WorkerFactory {
     }
 
     public deleteWorkerFile(): Observable<boolean> {
-        return of(false);
+        return bindCallback(unlink)(this.jobPath).pipe(
+            mapTo(true),
+            catchError(() => of(false))
+        );
     }
 }
