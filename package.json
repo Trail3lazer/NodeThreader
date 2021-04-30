@@ -1,0 +1,25 @@
+{
+  "name": "nodethreader",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsc && node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Trail3lazer/NodeThreader.git"
+  },
+  "author": "JWight1",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Trail3lazer/NodeThreader/issues"
+  },
+  "homepage": "https://github.com/Trail3lazer/NodeThreader#readme",
+  "dependencies": {
+    "@types/node": "^15.0.1",
+    "rxjs": "^6.6.7",
+    "typescript": "^4.2.4"
+  }
+}
