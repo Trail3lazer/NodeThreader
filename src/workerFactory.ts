@@ -1,16 +1,15 @@
-import { Cluster } from "node:cluster";
-import { createWriteStream, unlink } from "fs";
 import { ClusterSettings } from "node:cluster";
-import { cpus } from "os";
+import * as _fs from "fs";
+import * as _os from "os";
+import * as _cluster from "cluster";
 import { bindCallback, Observable, of } from "rxjs";
-import { catchError, map, mapTo, tap } from "rxjs/operators";
-const cluster: Cluster = require("cluster");
-
+import { mapTo, tap } from "rxjs/operators";
 export class WorkerFactory {
-    private jobPath: string = process.cwd() + "/tempProcess.js";
+    private jobPath: string = "./tempProcess.js";
 
+    public constructor(private readonly fs = _fs, private readonly cluster = _cluster, private readonly os = _os) {}
     public createWorkerFile<T>(job: (args: any) => T): Observable<string> {
-        const stream = createWriteStream(this.jobPath);
+        const stream = this.fs.createWriteStream(this.jobPath);
         const jobFileString = `export const job = ${job}`;
         if (stream.write(jobFileString)) {
             stream.end();
@@ -32,8 +31,8 @@ export class WorkerFactory {
             exec: this.jobPath,
             ...overrides,
         };
-        cluster.setupMaster(cSettings);
-        cluster.on("exit", this.deleteWorkerFile);
+        this.cluster.setupMaster(cSettings);
+        this.cluster.on("exit", this.deleteWorkerFile);
     }
 
     public spawnWorkers(limit: number = 0): void {
@@ -42,17 +41,14 @@ export class WorkerFactory {
         if (limit > 0) {
             maxWorkers = limit;
         } else {
-            maxWorkers = cpus().length;
+            maxWorkers = this.os.cpus().length;
         }
         for (let index = 0; index < maxWorkers; index++) {
-            cluster.fork();
+            this.cluster.fork();
         }
     }
 
-    public deleteWorkerFile(): Observable<boolean> {
-        return bindCallback(unlink)(this.jobPath).pipe(
-            mapTo(true),
-            catchError(() => of(false))
-        );
+    public deleteWorkerFile(): Observable<Error | null> {
+        return bindCallback(this.fs.unlink)(this.jobPath);
     }
 }
