@@ -1,42 +1,26 @@
-import { ClusterSettings } from "node:cluster";
+import { ClusterSettings, Worker } from "node:cluster";
 import * as _fs from "fs";
 import * as _os from "os";
 import * as _cluster from "cluster";
 import { bindCallback, Observable, of } from "rxjs";
-import { mapTo, tap } from "rxjs/operators";
+import { mapTo, take, tap } from "rxjs/operators";
+import { worker } from "./workerBoilerplate";
+export interface workerArgs<T> {
+    [argName: string]: T[];
+}
+export interface workerConfig<T, U> {
+    jobPath: string;
+    job: (arg: U) => T;
+    args: workerArgs<U>;
+}
 export class WorkerFactory {
-    private jobPath: string = "./tempProcess.js";
-
     public constructor(private readonly fs = _fs, private readonly cluster = _cluster, private readonly os = _os) {}
-    public createWorkerFile<T>(job: (args: any) => T): Observable<string> {
-        const stream = this.fs.createWriteStream(this.jobPath);
-        const jobFileString = `export const job = ${job}`;
-        if (stream.write(jobFileString)) {
-            stream.end();
-            return of(this.jobPath);
-        } else {
-            console.warn("WorkerFactory.createWorkerFile: Writing the worker file is delayed...");
-            return bindCallback(stream.on)("drain").pipe(
-                tap(() => {
-                    stream.end();
-                    console.info("WorkerFactory.createWorkerFile: Finished writing worker file.");
-                }),
-                mapTo(this.jobPath)
-            );
-        }
+
+    public closeWorkers(): void {
+        this.cluster.disconnect();
     }
 
-    public setup(overrides: ClusterSettings = {}): void {
-        const cSettings: ClusterSettings = {
-            exec: this.jobPath,
-            ...overrides,
-        };
-        this.cluster.setupMaster(cSettings);
-        this.cluster.on("exit", this.deleteWorkerFile);
-    }
-
-    public spawnWorkers(limit: number = 0): void {
-        this.setup();
+    public spawnWorkers<T, U>(configs: workerConfig<T, U>[], limit: number = 0): void {
         let maxWorkers: number;
         if (limit > 0) {
             maxWorkers = limit;
@@ -44,11 +28,45 @@ export class WorkerFactory {
             maxWorkers = this.os.cpus().length;
         }
         for (let index = 0; index < maxWorkers; index++) {
-            this.cluster.fork();
+            this.buildWorker(index, configs[index]);
         }
     }
 
-    public deleteWorkerFile(): Observable<Error | null> {
-        return bindCallback(this.fs.unlink)(this.jobPath);
+    private buildWorker<T, U>(id: number, config: workerConfig<T, U>): Worker {
+        const jobPath: string = `./tempProcess${id}.js`;
+        this.createWorkerFile(config);
+        this.setup(jobPath);
+        return this.cluster.fork();
+    }
+
+    private setup(jobPath: string, overrides: ClusterSettings = {}): void {
+        const cSettings: ClusterSettings = {
+            exec: jobPath,
+            ...overrides,
+        };
+        this.cluster.setupMaster(cSettings);
+        this.cluster.on("disconnect", () => this.deleteWorkerFile(jobPath).pipe(take(1)).subscribe());
+    }
+
+    private deleteWorkerFile(jobPath: string): Observable<Error | null> {
+        return bindCallback(this.fs.unlink)(jobPath);
+    }
+
+    private createWorkerFile<T, U>({ jobPath, job, args }: workerConfig<T, U>): Observable<string> {
+        const stream = this.fs.createWriteStream(jobPath);
+        const jobFileString = `${worker} \n worker(${job}, ${args});`;
+        if (stream.write(jobFileString)) {
+            stream.end();
+            return of(jobPath);
+        } else {
+            console.warn("WorkerFactory.createWorkerFile: Writing the worker file is delayed...");
+            return bindCallback(stream.on)("drain").pipe(
+                tap(() => {
+                    stream.end();
+                    console.info("WorkerFactory.createWorkerFile: Finished writing worker file.");
+                }),
+                mapTo(jobPath)
+            );
+        }
     }
 }
